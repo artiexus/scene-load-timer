@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Load Timer</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f3f2ef;
+    --surface: #fcfcfb;
+    --line: #dddcd6;
+    --text: #0b0b0b;
+    --text-2: #52514e;
+    --text-3: #7b7a75;
+    --network: #eb6834;
+    --local: #2a78d6;
+    --track: #ecebe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page: #111110;
+      --surface: #1a1a19;
+      --line: #32322f;
+      --text: #f0efec;
+      --text-2: #c3c2b7;
+      --text-3: #8f8e86;
+      --network: #d95926;
+      --local: #3987e5;
+      --track: #242423;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 16px 64px;
+    background: var(--page); color: var(--text);
+    font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 4px; text-wrap: balance; }
+  h2 { font-size: 16px; font-weight: 600; margin: 0 0 2px; }
+  .sub { color: var(--text-2); margin: 0 0 24px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; margin-bottom: 16px;
+  }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 16px; }
+  .tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; }
+  .tile .k { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .tile .v { font-size: 32px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .n { color: var(--text-3); font-size: 13px; }
+  .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+  .sw.network { background: var(--network); }
+  .sw.local { background: var(--local); }
+
+  .bar-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .legend { display: flex; gap: 16px; color: var(--text-2); font-size: 13px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button {
+    font: inherit; font-size: 13px; padding: 5px 12px; border: 0; cursor: pointer;
+    background: transparent; color: var(--text-2);
+  }
+  .seg button[aria-pressed="true"] { background: var(--track); color: var(--text); font-weight: 600; }
+
+  .group { padding: 12px 0; border-top: 1px solid var(--line); }
+  .group:first-child { border-top: 0; padding-top: 0; }
+  .group .name { font-weight: 600; overflow-wrap: anywhere; }
+  .group .meta { color: var(--text-3); font-size: 13px; margin-bottom: 8px; }
+  .row { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 8px; padding: 3px 0; cursor: default; }
+  .row .lab { color: var(--text-2); font-size: 13px; }
+  .row .plot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .row .bar { height: 18px; border-radius: 0 4px 4px 0; min-width: 2px; flex: none; }
+  .row .bar.network { background: var(--network); }
+  .row .bar.local { background: var(--local); }
+  .row .val { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+  .row:hover .bar { filter: brightness(1.12); }
+  .verdict { color: var(--text-2); font-size: 13px; margin-top: 6px; }
+
+  #tip {
+    position: fixed; pointer-events: none; z-index: 10; display: none;
+    background: var(--surface); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px 12px; font-size: 13px; max-width: 360px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25);
+  }
+  #tip b { display: block; margin-bottom: 4px; }
+  #tip div { color: var(--text-2); overflow-wrap: anywhere; }
+
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--text-2); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.path { white-space: normal; overflow-wrap: anywhere; color: var(--text-2); min-width: 220px; }
+  .empty { color: var(--text-2); }
+  .empty code { background: var(--track); padding: 1px 5px; border-radius: 4px; }
+  footer { color: var(--text-3); font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>How long 3ds Max takes to open a file</h1>
+  <p class="sub" id="sub">Network location against a copy on this PC's own drive.</p>
+
+  <div id="empty" class="card empty" hidden>
+    <h2>No times recorded yet</h2>
+    <p>Run <code>LoadTimer.ms</code> in 3ds Max, press <b>Pick a .max file and time it</b>, and this page fills in by itself.
+       It reads <code>load_times.js</code> from the same folder.</p>
+  </div>
+
+  <div id="content" hidden>
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card">
+      <div class="bar-head">
+        <div>
+          <h2>Seconds to open, per file</h2>
+          <div class="legend">
+            <span><i class="sw network"></i>Network</span>
+            <span><i class="sw local"></i>This PC</span>
+          </div>
+        </div>
+        <div class="seg" role="group" aria-label="Which opens to show">
+          <button type="button" data-mode="median" aria-pressed="true">Typical (median)</button>
+          <button type="button" data-mode="first" aria-pressed="false">First open only</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+    </div>
+
+    <div class="card">
+      <h2>Every measurement</h2>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th>When</th><th>File</th><th>Location</th><th>What</th><th class="num">Run</th>
+            <th class="num">Seconds</th><th class="num">MB</th><th class="num">MB/s</th><th>Note</th><th>Path</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <footer id="foot"></footer>
+  </div>
+</main>
+<div id="tip"></div>
+
+<script>
+(function () {
+  "use strict";
+  var LABEL = { network: "Network", local: "This PC" };
+  var mode = "median";
+  var lastCount = -1;
+  var data = [];
+  var tip = document.getElementById("tip");
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function median(a) {
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  function secs(v) { return v >= 100 ? v.toFixed(0) + " s" : v.toFixed(1) + " s"; }
+  function times(v) { return (v >= 10 ? v.toFixed(0) : v.toFixed(1)) + "×"; }
+
+  // One value per file and location: the median of all opens, or the first open of each session.
+  function pick(recs) {
+    var use = mode === "first" ? recs.filter(function (r) { return r.run === 1; }) : recs;
+    return use.length ? median(use.map(function (r) { return r.secs; })) : null;
+  }
+
+  function build() {
+    var opens = data.filter(function (r) { return r.kind === "open"; });
+    var copies = data.filter(function (r) { return r.kind === "copy"; });
+    var groups = [], byFile = {};
+    opens.forEach(function (r) {
+      var g = byFile[r.file];
+      if (!g) { g = byFile[r.file] = { file: r.file, mb: r.mb, network: [], local: [] }; groups.push(g); }
+      (g[r.loc] || (g[r.loc] = [])).push(r);
+      g.mb = r.mb;
+    });
+    groups.forEach(function (g) {
+      g.vNet = pick(g.network);
+      g.vLoc = pick(g.local);
+    });
+    return { groups: groups, copies: copies };
+  }
+
+  function tile(k, v, n, sw) {
+    var t = el("div", "tile");
+    var kk = el("div", "k");
+    if (sw) kk.appendChild(el("i", "sw " + sw));
+    kk.appendChild(document.createTextNode(k));
+    t.appendChild(kk);
+    t.appendChild(el("div", "v", v));
+    t.appendChild(el("div", "n", n));
+    return t;
+  }
+
+  function showTip(ev, title, lines) {
+    tip.textContent = "";
+    tip.appendChild(el("b", null, title));
+    lines.forEach(function (l) { tip.appendChild(el("div", null, l)); });
+    tip.style.display = "block";
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var x = Math.min(ev.clientX + 14, window.innerWidth - w - 8);
+    var y = ev.clientY + 14 + h > window.innerHeight ? ev.clientY - h - 10 : ev.clientY + 14;
+    tip.style.left = Math.max(8, x) + "px";
+    tip.style.top = Math.max(8, y) + "px";
+  }
+
+  function barRow(g, loc, value, max) {
+    var recs = g[loc];
+    var row = el("div", "row");
+    row.appendChild(el("div", "lab", LABEL[loc]));
+    var plot = el("div", "plot");
+    var bar = el("div", "bar " + loc);
+    bar.style.width = "calc((100% - 70px) * " + (value / max).toFixed(4) + ")";
+    plot.appendChild(bar);
+    plot.appendChild(el("span", "val", secs(value)));
+    row.appendChild(plot);
+    var all = recs.map(function (r) { return r.secs; });
+    var lines = [
+      (mode === "first" ? "First open: " : "Median: ") + secs(value),
+      recs.length + (recs.length === 1 ? " open" : " opens") + ", fastest " + secs(Math.min.apply(null, all)) + ", slowest " + secs(Math.max.apply(null, all)),
+      "File size " + g.mb.toFixed(0) + " MB",
+      recs[recs.length - 1].path
+    ];
+    row.addEventListener("mousemove", function (ev) { showTip(ev, g.file + " · " + LABEL[loc], lines); });
+    row.addEventListener("mouseleave", function () { tip.style.display = "none"; });
+    return row;
+  }
+
+  function render() {
+    var has = data.length > 0;
+    document.getElementById("empty").hidden = has;
+    document.getElementById("content").hidden = !has;
+    if (!has) return;
+
+    var b = build();
+    var both = b.groups.filter(function (g) { return g.vNet !== null && g.vLoc !== null; });
+    var netAll = b.groups.filter(function (g) { return g.vNet !== null; });
+    var locAll = b.groups.filter(function (g) { return g.vLoc !== null; });
+    function avg(list, key) { return list.reduce(function (s, g) { return s + g[key]; }, 0) / list.length; }
+
+    var tiles = document.getElementById("tiles");
+    tiles.textContent = "";
+    var what = mode === "first" ? "first open" : "typical open";
+    if (both.length) {
+      var n = avg(both, "vNet"), l = avg(both, "vLoc");
+      var ratio = n / l;
+      tiles.appendChild(tile("Network against this PC",
+        ratio >= 1 ? times(ratio) + " slower" : times(1 / ratio) + " faster",
+        (ratio >= 1 ? secs(n - l) + " longer" : secs(l - n) + " shorter") + " per open, over " + both.length + (both.length === 1 ? " file" : " files")));
+    }
+    if (netAll.length) tiles.appendChild(tile("Network", secs(avg(both.length ? both : netAll, "vNet")), what, "network"));
+    if (locAll.length) tiles.appendChild(tile("This PC", secs(avg(both.length ? both : locAll, "vLoc")), what, "local"));
+    var netCopies = b.copies.filter(function (r) { return r.loc === "network" && r.secs > 0; });
+    if (netCopies.length) {
+      var rate = median(netCopies.map(function (r) { return r.mb / r.secs; }));
+      tiles.appendChild(tile("Network read speed", rate.toFixed(0) + " MB/s", "plain file copy, no 3ds Max involved"));
+    }
+
+    var max = 0;
+    b.groups.forEach(function (g) { max = Math.max(max, g.vNet || 0, g.vLoc || 0); });
+    var chart = document.getElementById("chart");
+    chart.textContent = "";
+    b.groups.forEach(function (g) {
+      if (g.vNet === null && g.vLoc === null) return;
+      var box = el("div", "group");
+      box.appendChild(el("div", "name", g.file));
+      box.appendChild(el("div", "meta", g.mb.toFixed(0) + " MB"));
+      if (g.vNet !== null) box.appendChild(barRow(g, "network", g.vNet, max));
+      if (g.vLoc !== null) box.appendChild(barRow(g, "local", g.vLoc, max));
+      if (g.vNet !== null && g.vLoc !== null && g.vLoc > 0) {
+        var r = g.vNet / g.vLoc;
+        box.appendChild(el("div", "verdict", r >= 1
+          ? "The network copy takes " + times(r) + " as long to open."
+          : "The copy on this PC takes " + times(1 / r) + " as long to open."));
+      }
+      chart.appendChild(box);
+    });
+
+    var rows = document.getElementById("rows");
+    rows.textContent = "";
+    data.slice().reverse().forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, r.t));
+      tr.appendChild(el("td", null, r.file));
+      var loc = el("td");
+      loc.appendChild(el("i", "sw " + r.loc));
+      loc.appendChild(document.createTextNode(" " + (LABEL[r.loc] || r.loc)));
+      tr.appendChild(loc);
+      tr.appendChild(el("td", null, r.kind === "copy" ? "Copy to this PC" : "Open in Max " + r.max));
+      tr.appendChild(el("td", "num", r.kind === "copy" ? "" : String(r.run)));
+      tr.appendChild(el("td", "num", r.secs.toFixed(2)));
+      tr.appendChild(el("td", "num", r.mb.toFixed(1)));
+      tr.appendChild(el("td", "num", r.kind === "copy" && r.secs > 0 ? (r.mb / r.secs).toFixed(0) : ""));
+      tr.appendChild(el("td", null, r.note || ""));
+      tr.appendChild(el("td", "path", r.path));
+      rows.appendChild(tr);
+    });
+
+    var pcs = {};
+    data.forEach(function (r) { pcs[r.pc] = 1; });
+    document.getElementById("foot").textContent =
+      data.length + " measurements on " + Object.keys(pcs).join(", ") +
+      ". Each open starts from an empty scene with the file's Windows cache dropped first. This page refreshes itself.";
+  }
+
+  // The results are a .js file so the page can read them straight from disk.
+  function poll() {
+    window.MAXLOAD = [];
+    var s = document.createElement("script");
+    s.charset = "utf-8";
+    s.src = "load_times.js?" + Date.now();
+    function done() {
+      s.remove();
+      var fresh = window.MAXLOAD || [];
+      if (fresh.length !== lastCount) {
+        lastCount = fresh.length;
+        data = fresh;
+        render();
+      }
+    }
+    s.onload = done;
+    s.onerror = done;
+    document.head.appendChild(s);
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (btn) {
+    btn.addEventListener("click", function () {
+      mode = btn.getAttribute("data-mode");
+      Array.prototype.forEach.call(document.querySelectorAll(".seg button"), function (o) {
+        o.setAttribute("aria-pressed", o === btn ? "true" : "false");
+      });
+      render();
+    });
+  });
+
+  poll();
+  setInterval(poll, 3000);
+})();
+</script>
+</body>
+</html>
